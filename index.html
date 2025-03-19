@@ -182,6 +182,36 @@
         let animationId = null;
         let stepCount = 0;
         
+        // Add before the init() function
+function checkWebGLSupport() {
+    if (!window.WebGLRenderingContext) {
+        showError("Your browser doesn't support WebGL");
+        return false;
+    }
+    
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    
+    if (!gl) {
+        showError("Your browser supports WebGL, but it's disabled or unavailable");
+        return false;
+    }
+    
+    return true;
+}
+
+function showError(message) {
+    const visualization = document.getElementById('visualization');
+    visualization.innerHTML = `
+        <div style="padding: 20px; background: #f8d7da; color: #721c24; text-align: center; margin: 20px;">
+            <h3>WebGL Error</h3>
+            <p>${message}</p>
+            <p>Try using Chrome or Firefox, and make sure your graphics drivers are up to date.</p>
+        </div>
+    `;
+}
+
+
         // Initialize the scene
         function init() {
             // Setup Three.js scene
