@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gradient Descent Visualization</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #visualization {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            width: 300px;
+            z-index: 100;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input {
+            width: 100%;
+            padding: 5px;
+            margin-bottom: 5px;
+        }
+        button {
+            padding: 8px 15px;
+            background: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        button:hover {
+            background: #3367d6;
+        }
+        .color-box {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 5px;
+            border: 1px solid #333;
+        }
+        #legend {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="visualization"></div>
+    <div id="controls">
+        <h2>Gradient Descent Visualization</h2>
+        
+        <div class="control-group">
+            <label for="surface">Surface Type:</label>
+            <select id="surface">
+                <option value="rosenbrock">Rosenbrock (Banana) Function</option>
+                <option value="saddle">Saddle Point</option>
+                <option value="plateau">Plateau with Steep Drop</option>
+                <option value="himmelblau">Himmelblau's Function</option>
+                <option value="beale">Beale's Function</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label for="algorithm">Algorithm:</label>
+            <select id="algorithm">
+                <option value="gd">Gradient Descent</option>
+                <option value="momentum">Momentum</option>
+                <option value="adagrad">AdaGrad</option>
+                <option value="rmsprop">RMSProp</option>
+                <option value="adam">Adam</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label for="learningRate">Learning Rate:</label>
+            <input type="range" id="learningRate" min="0.001" max="0.2" step="0.001" value="0.01">
+            <span id="learningRateValue">0.01</span>
+        </div>
+        
+        <div class="control-group" id="momentumGroup">
+            <label for="momentum">Momentum:</label>
+            <input type="range" id="momentum" min="0" max="0.99" step="0.01" value="0.9">
+            <span id="momentumValue">0.9</span>
+        </div>
+        
+        <div class="control-group" id="beta1Group">
+            <label for="beta1">β1 (First Moment):</label>
+            <input type="range" id="beta1" min="0" max="0.999" step="0.001" value="0.9">
+            <span id="beta1Value">0.9</span>
+        </div>
+        
+        <div class="control-group" id="beta2Group">
+            <label for="beta2">β2 (Second Moment):</label>
+            <input type="range" id="beta2" min="0" max="0.999" step="0.001" value="0.999">
+            <span id="beta2Value">0.999</span>
+        </div>
+        
+        <div class="control-group" id="epsilonGroup">
+            <label for="epsilon">ε (Stability):</label>
+            <input type="range" id="epsilon" min="0.00000001" max="0.1" step="0.00000001" value="0.00000001">
+            <span id="epsilonValue">1e-8</span>
+        </div>
+        
+        <div class="control-group">
+            <button id="startBtn">Start</button>
+            <button id="resetBtn">Reset</button>
+            <button id="pauseBtn" disabled>Pause</button>
+            <button id="stepBtn">Step</button>
+        </div>
+        
+        <div class="control-group">
+            <label for="speed">Animation Speed:</label>
+            <input type="range" id="speed" min="1" max="50" step="1" value="10">
+        </div>
+    </div>
+    
+    <div id="legend">
+        <div><span class="color-box" style="background-color: red;"></span> Current Position</div>
+        <div><span class="color-box" style="background-color: blue;"></span> Gradient Vector</div>
+        <div><span class="color-box" style="background-color: green;"></span> Adjusted Direction</div>
+        <div><span class="color-box" style="background-color: #800080;"></span> Path</div>
+    </div>
+
+    <!-- Load libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- Load visualization code -->
+    <script>
+        // Main visualization code
+        let scene, camera, renderer, controls;
+        let surface, ball, gradientArrow, momentumArrow, path;
+        let surfaceMesh, surfaceGeometry;
+        
+        // Optimization variables
+        let currentPosition, gradient, momentum, velocity;
+        let m, v, t; // Adam variables
+        let gradientSquared; // AdaGrad/RMSProp variables
+        
+        // Configuration
+        let config = {
+            algorithm: 'gd',
+            learningRate: 0.01,
+            momentum: 0.9,
+            beta1: 0.9, // For Adam
+            beta2: 0.999, // For Adam
+            epsilon: 1e-8,
+            surface: 'rosenbrock',
+            running: false,
+            speed: 10
+        };
+        
+        // Animation
+        let animationId = null;
+        let stepCount = 0;
+        
+        // Initialize the scene
+        function init() {
+            // Setup Three.js scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0);
+            
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(5, 5, 5);
+            
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('visualization').appendChild(renderer.domElement);
+            
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.25;
+            
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+            
+            // Add coordinate axes
+            addCoordinateAxes();
+            
+            // Create the surface
+            createSurface();
+            
+            // Create the ball (current position)
+            createBall();
+            
+            // Create arrows for visualization
+            createArrows();
+            
+            // Create path
+            createPath();
+            
+            // Initialize optimization variables
+            resetOptimization();
+            
+            // Setup event listeners
+            setupEventListeners();
+            
+            // Start animation loop
+            animate();
+        }
+        
+        function addCoordinateAxes() {
+            const axesHelper = new THREE.AxesHelper(5);
+            scene.add(axesHelper);
+        }
+        
+        function createSurface() {
+            // Create a surface based on the selected function
+            const resolution = 50; // Grid resolution
+            const size = 10; // Size of the surface
+            
+            surfaceGeometry = new THREE.PlaneGeometry(size, size, resolution, resolution);
+            
+            // Update vertices based on the function
+            updateSurfaceGeometry();
+            
+            // Create material with phong shading for better visualization
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x3498db,
+                side: THREE.DoubleSide,
+                wireframe: false,
+                transparent: true,
+                opacity: 0.8,
+                shininess: 30
+            });
+            
+            // Create the surface mesh
+            surfaceMesh = new THREE.Mesh(surfaceGeometry, material);
+            scene.add(surfaceMesh);
+            
+            // Add wireframe
+            const wireframeMaterial = new THREE.MeshBasicMaterial({
+                color: 0x000000,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.1
+            });
+            
+            const wireframe = new THREE.Mesh(surfaceGeometry, wireframeMaterial);
+            scene.add(wireframe);
+        }
+        
+        function updateSurfaceGeometry() {
+            const vertices = surfaceGeometry.attributes.position.array;
+            
+            for (let i = 0; i < vertices.length; i += 3) {
+                const x = vertices[i];
+                const y = vertices[i + 1];
+                vertices[i + 2] = evaluateFunction(x, y); // Update z-coordinate
+            }
+            
+            // Update the geometry
+            surfaceGeometry.attributes.position.needsUpdate = true;
+            surfaceGeometry.computeVertexNormals();
+        }
+        
+        function evaluateFunction(x, y) {
+            switch (config.surface) {
+                case 'rosenbrock':
+                    // Rosenbrock (Banana) function
+                    return Math.pow(1 - x, 2) + 100 * Math.pow(y - x * x, 2);
+                case 'saddle':
+                    // Saddle point function
+                    return x * x - y * y;
+                case 'plateau':
+                    // Plateau with steep drop
+                    return Math.tanh(x * x + y * y) * 5;
+                case 'himmelblau':
+                    // Himmelblau's function
+                    return Math.pow(x * x + y - 11, 2) + Math.pow(x + y * y - 7, 2);
+                case 'beale':
+                    // Beale's function
+                    return Math.pow(1.5 - x + x * y, 2) + 
+                           Math.pow(2.25 - x + x * y * y, 2) + 
+                           Math.pow(2.625 - x + x * y * y * y, 2);
+                default:
+                    return Math.pow(x, 2) + Math.pow(y, 2); // Simple quadratic function
+            }
+        }
+        
+        function calculateGradient(x, y) {
+            // Calculate gradient using finite differences
+            const h = 0.0001;
+            const fx = evaluateFunction(x, y);
+            
+            const gradX = (evaluateFunction(x + h, y) - fx) / h;
+            const gradY = (evaluateFunction(x, y + h) - fx) / h;
+            
+            return { x: gradX, y: gradY };
+        }
+        
+        function createBall() {
+            const geometry = new THREE.SphereGeometry(0.2, 32, 32);
+            const material = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+            ball = new THREE.Mesh(geometry, material);
+            scene.add(ball);
+            
+            // Set initial position
+            updateBallPosition();
+        }
+        
+        function createArrows() {
+            // Gradient arrow (blue)
+            const gradientMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+            gradientArrow = createArrow(gradientMaterial);
+            scene.add(gradientArrow);
+            
+            // Momentum/adjusted direction arrow (green)
+            const momentumMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+            momentumArrow = createArrow(momentumMaterial);
+            scene.add(momentumArrow);
+        }
+        
+        function createArrow(material) {
+            const arrowGroup = new THREE.Group();
+            
+            // Arrow shaft
+            const shaftGeometry = new THREE.CylinderGeometry(0.03, 0.03, 1, 8);
+            shaftGeometry.translate(0, 0.5, 0);
+            const shaft = new THREE.Mesh(shaftGeometry, material);
+            shaft.rotation.x = Math.PI / 2;
+            arrowGroup.add(shaft);
+            
+            // Arrow head
+            const headGeometry = new THREE.ConeGeometry(0.1, 0.2, 8);
+            headGeometry.translate(0, 0.1, 0);
+            const head = new THREE.Mesh(headGeometry, material);
+            head.rotation.x = Math.PI / 2;
+            head.position.set(0, 0, 1);
+            arrowGroup.add(head);
+            
+            return arrowGroup;
+        }
+        
+        function createPath() {
+            const material = new THREE.LineBasicMaterial({ color: 0x800080, linewidth: 2 });
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(1000 * 3); // Allocate space for 1000 points
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setDrawRange(0, 0);
+            
+            path = new THREE.Line(geometry, material);
+            scene.add(path);
+        }
+        
+        function updateBallPosition() {
+            // Set ball position
+            ball.position.set(
+                currentPosition.x,
+                currentPosition.y,
+                evaluateFunction(currentPosition.x, currentPosition.y) + 0.2 // Slightly above surface
+            );
+            
+            // Update gradient
+            gradient = calculateGradient(currentPosition.x, currentPosition.y);
+            
+            // Update gradient arrow
+            updateArrow(gradientArrow, gradient, ball.position);
+            
+            // Update momentum/adjusted direction arrow based on algorithm
+            let adjustedDirection;
+            switch (config.algorithm) {
+                case 'momentum':
+                    adjustedDirection = { x: momentum.x, y: momentum.y };
+                    break;
+                case 'adagrad':
+                case 'rmsprop':
+                    adjustedDirection = {
+                        x: -gradient.x / (Math.sqrt(gradientSquared.x) + config.epsilon) * config.learningRate,
+                        y: -gradient.y / (Math.sqrt(gradientSquared.y) + config.epsilon) * config.learningRate
+                    };
+                    break;
+                case 'adam':
+                    // Adjusted direction for Adam
+                    const mCorrected = {
+                        x: m.x / (1 - Math.pow(config.beta1, t)),
+                        y: m.y / (1 - Math.pow(config.beta1, t))
+                    };
+                    const vCorrected = {
+                        x: v.x / (1 - Math.pow(config.beta2, t)),
+                        y: v.y / (1 - Math.pow(config.beta2, t))
+                    };
+                    adjustedDirection = {
+                        x: -mCorrected.x / (Math.sqrt(vCorrected.x) + config.epsilon) * config.learningRate,
+                        y: -mCorrected.y / (Math.sqrt(vCorrected.y) + config.epsilon) * config.learningRate
+                    };
+                    break;
+                default: // Gradient descent
+                    adjustedDirection = {
+                        x: -gradient.x * config.learningRate,
+                        y: -gradient.y * config.learningRate
+                    };
+            }
+            
+            updateArrow(momentumArrow, adjustedDirection, ball.position);
+            
+            // Update path
+            const positions = path.geometry.attributes.position.array;
+            const count = path.geometry.drawRange.count;
+            
+            positions[count * 3] = currentPosition.x;
+            positions[count * 3 + 1] = currentPosition.y;
+            positions[count * 3 + 2] = evaluateFunction(currentPosition.x, currentPosition.y) + 0.1;
+            
+            path.geometry.setDrawRange(0, count + 1);
+            path.geometry.attributes.position.needsUpdate = true;
+        }
+        
+        function updateArrow(arrow, direction, origin) {
+            // Set arrow position
+            arrow.position.copy(origin);
+            
+            // Calculate arrow length and direction
+            const length = Math.sqrt(direction.x * direction.x + direction.y * direction.y);
+            
+            if (length > 0.0001) {
+                // Scale arrow length for visualization
+                const scale = Math.min(1, length) * 2;
+                arrow.scale.set(1, 1, scale);
+                
+                // Orient arrow in the direction of the vector
+                const arrowDirection = new THREE.Vector3(direction.x, direction.y, 0).normalize();
+                const axis = new THREE.Vector3(0, 0, 1);
+                const angle = Math.atan2(arrowDirection.y, arrowDirection.x);
+                
+                arrow.rotation.set(0, 0, angle);
+                
+                // Make arrow visible
+                arrow.visible = true;
+            } else {
+                // Hide arrow if direction is too small
+                arrow.visible = false;
+            }
+        }
+        
+        function resetOptimization() {
+            // Reset position (start at different points based on function)
+            switch (config.surface) {
+                case 'rosenbrock':
+                    currentPosition = { x: -1, y: 1 };
+                    break;
+                case 'saddle':
+                    currentPosition = { x: 0.1, y: 0.1 };
+                    break;
+                default:
+                    currentPosition = { x: 2, y: 2 };
+            }
+            
+            // Reset optimization variables
+            gradient = { x: 0, y: 0 };
+            momentum = { x: 0, y: 0 };
+            velocity = { x: 0, y: 0 };
+            
+            // AdaGrad/RMSProp variables
+            gradientSquared = { x: 0, y: 0 };
+            
+            // Adam variables
+            m = { x: 0, y: 0 }; // First moment
+            v = { x: 0, y: 0 }; // Second moment
+            t = 1; // Time step
+            
+            // Reset path
+            path.geometry.setDrawRange(0, 0);
+            
+            // Update ball position
+            updateBallPosition();
+            
+            // Reset step count
+            stepCount = 0;
+        }
+        
+        function performOptimizationStep() {
+            // Calculate current gradient
+            gradient = calculateGradient(currentPosition.x, currentPosition.y);
+            
+            // Update position based on the selected algorithm
+            switch (config.algorithm) {
+                case 'momentum':
+                    performMomentumStep();
+                    break;
+                case 'adagrad':
+                    performAdaGradStep();
+                    break;
+                case 'rmsprop':
+                    performRMSPropStep();
+                    break;
+                case 'adam':
+                    performAdamStep();
+                    break;
+                default:
+                    performGradientDescentStep();
+            }
+            
+            // Update ball position
+            updateBallPosition();
+            
+            // Increment step count
+            stepCount++;
+            
+            return {
+                x: currentPosition.x,
+                y: currentPosition.y,
+                z: evaluateFunction(currentPosition.x, currentPosition.y),
+                step: stepCount
+            };
+        }
+        
+        function performGradientDescentStep() {
+            // Simple gradient descent update
+            currentPosition.x -= gradient.x * config.learningRate;
+            currentPosition.y -= gradient.y * config.learningRate;
+        }
+        
+        function performMomentumStep() {
+            // Momentum update
+            momentum.x = config.momentum * momentum.x - config.learningRate * gradient.x;
+            momentum.y = config.momentum * momentum.y - config.learningRate * gradient.y;
+            
+            currentPosition.x += momentum.x;
+            currentPosition.y += momentum.y;
+        }
+        
+        function performAdaGradStep() {
+            // AdaGrad update
+            gradientSquared.x += gradient.x * gradient.x;
+            gradientSquared.y += gradient.y * gradient.y;
+            
+            currentPosition.x -= config.learningRate * gradient.x / (Math.sqrt(gradientSquared.x) + config.epsilon);
+            currentPosition.y -= config.learningRate * gradient.y / (Math.sqrt(gradientSquared.y) + config.epsilon);
+        }
+        
+        function performRMSPropStep() {
+            // RMSProp update
+            const decayRate = 0.9;
+            
+            gradientSquared.x = decayRate * gradientSquared.x + (1 - decayRate) * gradient.x * gradient.x;
+            gradientSquared.y = decayRate * gradientSquared.y + (1 - decayRate) * gradient.y * gradient.y;
+            
+            currentPosition.x -= config.learningRate * gradient.x / (Math.sqrt(gradientSquared.x) + config.epsilon);
+            currentPosition.y -= config.learningRate * gradient.y / (Math.sqrt(gradientSquared.y) + config.epsilon);
+        }
+        
+        function performAdamStep() {
+            // Adam update
+            // Update biased first moment estimate
+            m.x = config.beta1 * m.x + (1 - config.beta1) * gradient.x;
+            m.y = config.beta1 * m.y + (1 - config.beta1) * gradient.y;
+            
+            // Update biased second moment estimate
+            v.x = config.beta2 * v.x + (1 - config.beta2) * gradient.x * gradient.x;
+            v.y = config.beta2 * v.y + (1 - config.beta2) * gradient.y * gradient.y;
+            
+            // Compute bias-corrected first moment estimate
+            const mCorrected = {
+                x: m.x / (1 - Math.pow(config.beta1, t)),
+                y: m.y / (1 - Math.pow(config.beta1, t))
+            };
+            
+            // Compute bias-corrected second moment estimate
+            const vCorrected = {
+                x: v.x / (1 - Math.pow(config.beta2, t)),
+                y: v.y / (1 - Math.pow(config.beta2, t))
+            };
+            
+            // Update parameters
+            currentPosition.x -= config.learningRate * mCorrected.x / (Math.sqrt(vCorrected.x) + config.epsilon);
+            currentPosition.y -= config.learningRate * mCorrected.y / (Math.sqrt(vCorrected.y) + config.epsilon);
+            
+            // Increment time step
+            t++;
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Update controls
+            controls.update();
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+        
+        function startAnimation() {
+            if (animationId) {
+                clearTimeout(animationId);
+            }
+            
+            config.running = true;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('pauseBtn').disabled = false;
+            
+            function step() {
+                if (config.running) {
+                    performOptimizationStep();
+                    
+                    // Continue animation
+                    animationId = setTimeout(step, 1000 / config.speed);
+                }
+            }
+            
+            step();
+        }
+        
+        function pauseAnimation() {
+            config.running = false;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('pauseBtn').disabled = true;
+            
+            if (animationId) {
+                clearTimeout(animationId);
+                animationId = null;
+            }
+        }
+        
+        function setupEventListeners() {
+            // Algorithm selection
+            document.getElementById('algorithm').addEventListener('change', function(e) {
+                config.algorithm = e.target.value;
+                
+                // Show/hide appropriate parameter controls
+                document.getElementById('momentumGroup').style.display = 
+                    (config.algorithm === 'momentum') ? 'block' : 'none';
+                
+                document.getElementById('beta1Group').style.display = 
+                    (config.algorithm === 'adam') ? 'block' : 'none';
+                
+                document.getElementById('beta2Group').style.display = 
+                    (config.algorithm === 'adam') ? 'block' : 'none';
+                
+                document.getElementById('epsilonGroup').style.display = 
+                    (config.algorithm === 'adagrad' || config.algorithm === 'rmsprop' || config.algorithm === 'adam') 
+                    ? 'block' : 'none';
+                
+                resetOptimization();
+            });
+            
+            // Surface selection
+            document.getElementById('surface').addEventListener('change', function(e) {
+                config.surface = e.target.value;
+                updateSurfaceGeometry();
+                resetOptimization();
+            });
+            
+            // Learning rate
+            document.getElementById('learningRate').addEventListener('input', function(e) {
+                config.learningRate = parseFloat(e.target.value);
+                document.getElementById('learningRateValue').textContent = config.learningRate.toFixed(3);
+            });
+            
+            // Momentum
+            document.getElementById('momentum').addEventListener('input', function(e) {
+                config.momentum = parseFloat(e.target.value);
+                document.getElementById('momentumValue').textContent = config.momentum.toFixed(2);
+            });
+            
+            // Beta1
+            document.getElementById('beta1').addEventListener('input', function(e) {
+                config.beta1 = parseFloat(e.target.value);
+                document.getElementById('beta1Value').textContent = config.beta1.toFixed(3);
+            });
+            
+            // Beta2
+            document.getElementById('beta2').addEventListener('input', function(e) {
+                config.beta2 = parseFloat(e.target.value);
+                document.getElementById('beta2Value').textContent = config.beta2.toFixed(3);
+            });
+            
+            // Epsilon
+            document.getElementById('epsilon').addEventListener('input', function(e) {
+                config.epsilon = parseFloat(e.target.value);
+                document.getElementById('epsilonValue').textContent = config.epsilon.toExponential(8);
+            });
+            
+            // Speed
+            document.getElementById('speed').addEventListener('input', function(e) {
+                config.speed = parseInt(e.target.value);
+            });
+            
+            // Start button
+            document.getElementById('startBtn').addEventListener('click', startAnimation);
+            
+            // Pause button
+            document.getElementById('pauseBtn').addEventListener('click', pauseAnimation);
+            
+            // Reset button
+            document.getElementById('resetBtn').addEventListener('click', function() {
+                pauseAnimation();
+                resetOptimization();
+            });
+            
+            // Step button
+            document.getElementById('stepBtn').addEventListener('click', function() {
+                performOptimizationStep();
+            });
+            
+            // Window resize
+            window.addEventListener('resize', function() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+            
+            // Initialize controls visibility
+            document.getElementById('momentumGroup').style.display = 'none';
+            document.getElementById('beta1Group').style.display = 'none';
+            document.getElementById('beta2Group').style.display = 'none';
+            document.getElementById('epsilonGroup').style.display = 'none';
+        }
+        
+        // Start visualization
+        init();
+    </script>
+</body>
+</html>
